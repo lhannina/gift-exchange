@@ -1,0 +1,70 @@
+rules_version = '2';
+
+// Paste this into Firebase console > Firestore Database > Rules > Publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // >>> Put your organizer email(s) here, lowercase. Must match js/firebase-config.js <<<
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email in ['you@example.com'];
+    }
+
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function claimPath() { return /databases/$(database)/documents/claims/$(uid()); }
+    function hasClaim() { return signedIn() && exists(claimPath()); }
+    function myPersonId() { return get(claimPath()).data.personId; }
+    function isMember() { return isAdmin() || hasClaim(); }
+
+    // Event settings: anyone with the link can read (needed on the welcome screen).
+    match /config/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // The name list. Anyone with the link can read names (to match what they type).
+    match /participants/{pid} {
+      allow read: if signedIn();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        // Claiming a name: only if nobody has it yet, and this device hasn't claimed another name.
+        || (signedIn()
+            && resource.data.get('claimedBy', null) == null
+            && request.resource.data.claimedBy == uid()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimedBy', 'claimedAt'])
+            && !exists(claimPath())
+            && existsAfter(claimPath()))
+        // Marking your own present as opened.
+        || (signedIn()
+            && resource.data.get('claimedBy', null) == uid()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revealed']));
+    }
+
+    // Which name each device claimed. Written together with the claim above.
+    match /claims/{u} {
+      allow get: if signedIn() && u == uid();
+      allow create: if signedIn() && u == uid()
+        && request.resource.data.keys().hasOnly(['personId'])
+        && getAfter(/databases/$(database)/documents/participants/$(request.resource.data.personId)).data.claimedBy == uid();
+      allow delete: if isAdmin();
+    }
+
+    // "Who can't get who" rules: organizers only.
+    match /rules/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    // Wishlists: people who joined can read all; you can only edit your own.
+    match /wishlists/{pid}/items/{itemId} {
+      allow read: if isMember();
+      allow write: if isAdmin() || (hasClaim() && myPersonId() == pid);
+    }
+
+    // Matches: only the person who claimed that name can read it. Not even organizers.
+    match /assignments/{pid} {
+      allow get: if signedIn()
+        && get(/databases/$(database)/documents/participants/$(pid)).data.get('claimedBy', null) == uid();
+      allow create, update, delete: if isAdmin();
+    }
+  }
+}
