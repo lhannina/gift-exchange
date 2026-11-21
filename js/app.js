@@ -55,6 +55,15 @@ async function boot() {
   $('#signout').addEventListener('click', async () => {
     if (await confirmBox('Sign out?', 'You can sign back in with your organizer email and password.', 'Sign out')) store.signOut();
   });
+  // Organizer signed in on a device where they'd joined as a regular person.
+  $('#org-switch').addEventListener('click', async () => {
+    const ok = await confirmBox(
+      'Sign in as the organizer?',
+      `This device will stop being signed in as <strong>${esc(S.me?.name || '')}</strong>. If you're also playing, after you sign in go to Organizer, tap <strong>Reset</strong> next to your name, then tap <strong>This is me</strong>.`,
+      'Continue',
+    );
+    if (ok) renderAdminLogin();
+  });
   nav.addEventListener('click', (e) => {
     const b = e.target.closest('[data-tab]');
     if (b) go(b.dataset.tab);
@@ -113,6 +122,7 @@ function setTitle() {
 function setUserBar(me) {
   $('#who').textContent = me ? `Hi, ${firstName(me.name)}` : '';
   $('#signout').hidden = !(me && S.isAdmin);
+  $('#org-footer').hidden = !(me && !S.isAdmin);
 }
 
 /* ---------------- helpers ---------------- */
@@ -209,6 +219,7 @@ function loginShell(title, text, formHtml) {
   S.me = null;
   nav.hidden = true;
   setUserBar(null);
+  $('#org-footer').hidden = true;
   $('#event-name').textContent = S.config.eventName || 'Gift Exchange';
   app.innerHTML = `
   <section class="hero">
@@ -306,7 +317,7 @@ function renderAdminLogin() {
     </form>
     <div class="org-link"><button type="button" class="btn btn-ghost" id="back-btn">Back</button></div>`);
   $('#a-email').focus();
-  $('#back-btn').addEventListener('click', () => renderLogin());
+  $('#back-btn').addEventListener('click', () => (S.user ? startSession(S.user) : renderLogin()));
   $('#admin-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = $('#a-btn');

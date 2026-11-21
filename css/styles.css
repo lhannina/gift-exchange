@@ -435,3 +435,6 @@ select { appearance: none; background: #fff url("data:image/svg+xml,%3Csvg xmlns
 .rule-chip button { display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 50%; background: transparent; color: var(--berry-dark); cursor: pointer; }
 .rule-chip button:hover { background: #f0d9d9; }
 .rule-chip svg { width: 18px; height: 18px; }
+
+.org-footer { max-width: 760px; margin: 0 auto; padding: 0 1rem 1rem; text-align: center; }
+.org-footer .btn { font-size: 1rem; min-height: 48px; color: var(--muted); }
