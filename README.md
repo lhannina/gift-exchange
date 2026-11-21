@@ -79,6 +79,14 @@ If someone joins after the draw, they see "You're in! The organizer will add you
 
 Both options follow your "can't get" rules and the no-repeat-from-last-year setting.
 
+### Adding rules after the draw
+When you save rules after names are drawn, the app checks the current draw:
+- **Nothing broken:** "The current draw already follows them."
+- **A match breaks a rule:** it offers to fix it by swapping with someone who **hasn't opened their present yet**. Only the person who broke the rule gets a new match (with a "Your match changed" note if they'd already opened).
+- **No one can swap:** it offers to redo the whole draw.
+
+Heads up: a warning tells you that pair existed (e.g. adding "Mom can't get Dad" and seeing a warning means Mom had Dad).
+
 ### 7. Next year
 Everything stays online for free, so you reuse the same link. On the Organizer tab, tap **Start a new year**:
 - **Always cleared:** last year's draw and all messages.

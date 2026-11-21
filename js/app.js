@@ -937,19 +937,27 @@ async function renderAdmin() {
 
     <section class="panel">
       <h2><span class="step">3</span> Who should NOT get who</h2>
-      <p class="help">Rules only go one way. "Mom can't get Dad" still lets Dad get Mom, unless you tick the box.</p>
+      <p class="help">Pick a person, then tick everyone they <strong>can't</strong> get. Rules only go one way. "Mom can't get Dad" still lets Dad get Mom, unless you tick "Also the other way around".</p>
       <form id="add-rule" class="form">
-        <div class="rule-builder">
-          <select id="r-giver" aria-label="Person drawing">${opts()}</select>
-          <span class="rule-word">can't get</span>
-          <select id="r-receiver" aria-label="Person they can't get">${opts()}</select>
+        <label for="r-giver">Person</label>
+        <select id="r-giver">${opts()}</select>
+        <div id="r-pick" hidden>
+          <p class="rule-word pick-title">can't get:</p>
+          <div class="pick-grid" id="r-list"></div>
+          <label class="check"><input type="checkbox" id="r-both"><span>Also the other way around (they can't get this person either)</span></label>
+          <button class="btn btn-primary">Save rules</button>
         </div>
-        <label class="check"><input type="checkbox" id="r-both"><span>Also the other way around</span></label>
-        <button class="btn btn-primary">Add rule</button>
       </form>
-      <ul class="admin-list rules">${rules.map((r) => `
-        <li><div class="grow"><strong>${esc(personName(r.giver))}</strong> <span class="rule-word">can't get</span> <strong>${esc(personName(r.receiver))}</strong></div>
-          <button class="btn btn-ghost small danger-text" data-rm-rule="${esc(r.id)}">Remove</button></li>`).join('') || '<li class="muted">No rules. Anyone can get anyone (except themselves).</li>'}
+      <ul class="admin-list rules">${(() => {
+        const groups = {};
+        for (const r of rules) (groups[r.giver] ||= []).push(r);
+        const ids = Object.keys(groups).sort((a, b) => personName(a).localeCompare(personName(b)));
+        return ids.map((g) => `
+        <li><div class="grow"><strong>${esc(personName(g))}</strong> <span class="rule-word">can't get</span>
+          <span class="rule-chips">${groups[g].map((r) => `<span class="rule-chip">${esc(personName(r.receiver))}<button type="button" data-rm-rule="${esc(r.id)}" aria-label="Remove: ${esc(personName(g))} can't get ${esc(personName(r.receiver))}">${ICON.x}</button></span>`).join('')}</span></div>
+          <button class="btn btn-ghost small" data-edit-rules="${esc(g)}">Edit</button></li>`).join('')
+          || '<li class="muted">No rules. Anyone can get anyone (except themselves).</li>';
+      })()}
       </ul>
     </section>
 
@@ -1067,16 +1075,108 @@ async function renderAdmin() {
     renderAdmin();
   }));
 
+  // Pick a person, tick everyone they can't get. Ticks start from their current rules, so this also edits.
+  const showPicker = () => {
+    const g = $('#r-giver').value;
+    $('#r-pick').hidden = !g;
+    if (!g) return;
+    const current = new Set(rules.filter((r) => r.giver === g).map((r) => r.receiver));
+    $('#r-list').innerHTML = people.filter((p) => p.id !== g).map((p) => `
+      <label class="pick"><input type="checkbox" value="${esc(p.id)}" ${current.has(p.id) ? 'checked' : ''}><span>${esc(p.name)}</span></label>`).join('');
+    $('.pick-title').textContent = `${personName(g)} can't get:`;
+  };
+  $('#r-giver').addEventListener('change', showPicker);
+  $$('[data-edit-rules]').forEach((b) => b.addEventListener('click', () => {
+    $('#r-giver').value = b.dataset.editRules;
+    showPicker();
+    $('#add-rule').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }));
   $('#add-rule').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const g = $('#r-giver').value, r = $('#r-receiver').value;
-    if (!g || !r) return toast('Please choose both people.', 'err');
-    if (g === r) return toast('Pick two different people. Nobody can get themselves anyway.', 'err');
-    await store.addRule({ giver: g, receiver: r });
-    if ($('#r-both').checked) await store.addRule({ giver: r, receiver: g });
-    toast(c.drawDone ? 'Rule added. Redo the draw for it to count.' : 'Rule added!');
+    const g = $('#r-giver').value;
+    if (!g) return toast('Please choose a person first.', 'err');
+    const ticked = new Set($$('#r-list input:checked').map((i) => i.value));
+    const mine = rules.filter((r) => r.giver === g);
+    const had = new Set(mine.map((r) => r.receiver));
+    const both = $('#r-both').checked;
+    const jobs = [];
+    for (const r of ticked) {
+      if (!had.has(r)) jobs.push(store.addRule({ giver: g, receiver: r }));
+      if (both && !rules.some((x) => x.giver === r && x.receiver === g)) jobs.push(store.addRule({ giver: r, receiver: g }));
+    }
+    for (const r of mine) if (!ticked.has(r.receiver)) jobs.push(store.deleteRule(r.id));
+    if (!jobs.length) return toast('No changes to save.');
+    await Promise.all(jobs);
+    if (!c.drawDone) { toast('Rules saved!'); return renderAdmin(); }
+    await checkDrawAgainstRules();
     renderAdmin();
   });
+
+  // After the draw: does any current match break the rules? Fix by swapping with someone who hasn't opened yet.
+  async function checkDrawAgainstRules() {
+    const pairs = await currentPairs();
+    if (!pairs) { toast('Rules saved. Redo the draw for them to count.'); return; }
+    const fresh = await store.listRules();
+    const yearly = await lastYearRules();
+    const byId = (id) => people.find((p) => p.id === id);
+    const hardBlocked = new Set(fresh.map((r) => `${r.giver}>${r.receiver}`));
+    const broken = Object.keys(pairs).filter((g) => hardBlocked.has(`${g}>${pairs[g]}`));
+    if (!broken.length) { toast('Rules saved. The current draw already follows them.'); return; }
+
+    const plan = (blocked) => {
+      const bad = (g, r) => g === r || blocked.has(`${g}>${r}`);
+      const next = { ...pairs };
+      const changed = new Set();
+      for (const g of broken) {
+        if (!bad(g, next[g])) continue;
+        let fixed = false;
+        for (const h of shuffle(Object.keys(next))) {
+          if (h === g || byId(h).revealed) continue; // only swap with people who haven't opened
+          const a = next[g], b = next[h];
+          if (bad(g, b) || bad(h, a)) continue;
+          const trial = { ...next, [g]: b, [h]: a };
+          if (c.noSwap && (trial[b] === g || trial[a] === h)) continue;
+          Object.assign(next, trial);
+          changed.add(g); changed.add(h);
+          fixed = true;
+          break;
+        }
+        if (!fixed) return null;
+      }
+      return { next, changed: [...changed] };
+    };
+    const withYearly = new Set([...hardBlocked, ...yearly.map((r) => `${r.giver}>${r.receiver}`)]);
+    const fix = plan(withYearly) || plan(hardBlocked);
+    const n = broken.length;
+    const what = `${n} current match${n > 1 ? 'es break' : ' breaks'} your rules.`;
+
+    if (!fix) {
+      const redo = await confirmBox(
+        'Rule broken: redo the draw?',
+        `${what} The app can't fix it by switching with someone who hasn't opened their present yet. Redo the draw? <strong>Everyone</strong> gets a new person and opens their present again. Messages will be cleared.`,
+        'Redo the draw',
+        true,
+      );
+      if (redo && (await doDraw())) toast('New names drawn! Everyone follows the rules now.');
+      else if (!redo) toast('Rules saved. The current draw still breaks them.', 'err');
+      return;
+    }
+
+    const openedBreakers = broken.filter((g) => byId(g).revealed).length;
+    const ok = await confirmBox(
+      'A match breaks this rule',
+      `${what} The app can fix it by switching with ${n > 1 ? 'people' : 'someone'} who <strong>hasn't opened their present yet</strong>.`
+        + (openedBreakers
+          ? ` The person whose match breaks the rule already opened theirs, so they'll get a new person and see a "Your match changed" note.`
+          : ' Nobody who has opened their present is affected.'),
+      'Fix it',
+    );
+    if (!ok) { toast('Rules saved. The current draw still breaks them.', 'err'); return; }
+    await store.reassign(fix.changed.map((g) => ({ giver: g, receiver: fix.next[g], oldReceiver: pairs[g], opened: !!byId(g).revealed })));
+    await saveCodes(fix.next);
+    S.match = undefined; S.assign = undefined; S.recipThread = undefined;
+    toast('Fixed! The draw follows your rules now.');
+  }
   $$('[data-rm-rule]').forEach((b) => b.addEventListener('click', async () => {
     await store.deleteRule(b.dataset.rmRule);
     toast('Rule removed.');

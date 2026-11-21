@@ -423,3 +423,15 @@ select { appearance: none; background: #fff url("data:image/svg+xml,%3Csvg xmlns
 .late-box .btn-block { margin-top: .5rem; }
 .status.late { background: #fff1d6; color: #7a5300; }
 .changed-note { position: relative; background: rgba(255,255,255,.12); border-radius: 12px; padding: .75rem 1rem; margin: .75rem auto 0; max-width: 34ch; font-size: 1.1rem; }
+
+/* ---------- multi-pick rules ---------- */
+.pick-title { margin: 1.1rem 0 .5rem; font-size: 1.1rem; }
+.pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .5rem; }
+.pick { display: flex; align-items: center; gap: .6rem; margin: 0; padding: .7rem .8rem; min-height: 56px; border: 2px solid var(--line); border-radius: 12px; background: #fff; font-weight: 700; cursor: pointer; }
+.pick input { width: 26px; height: 26px; min-height: 0; accent-color: var(--berry); flex-shrink: 0; }
+.pick:has(input:checked) { border-color: var(--berry); background: #fdf0f0; }
+.rule-chips { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .4rem; }
+.rule-chip { display: inline-flex; align-items: center; gap: .2rem; padding: .2rem .2rem .2rem .7rem; border-radius: 999px; background: #f6ece0; font-weight: 700; }
+.rule-chip button { display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 50%; background: transparent; color: var(--berry-dark); cursor: pointer; }
+.rule-chip button:hover { background: #f0d9d9; }
+.rule-chip svg { width: 18px; height: 18px; }

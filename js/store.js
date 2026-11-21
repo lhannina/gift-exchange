@@ -140,6 +140,20 @@ async function createFirebaseStore() {
       for (const id of chain) b.update(doc(db, 'participants', id), { inDraw: true, revealed: false, matchChanged: false });
       await b.commit();
     },
+    // Gives some people new matches (used to fix a rule broken after the draw).
+    // changes: [{ giver, receiver, oldReceiver, opened }]. Old chats for those pairs are deleted.
+    async reassign(changes) {
+      const olds = await Promise.all(changes.map((ch) => getDocs(query(collection(db, 'threads'), where('receiver', '==', ch.oldReceiver)))));
+      const b = writeBatch(db);
+      olds.forEach((s) => s.docs.forEach((d) => b.delete(d.ref)));
+      for (const ch of changes) {
+        const tid = newId();
+        b.set(doc(db, 'threads', tid), { receiver: ch.receiver });
+        b.set(doc(db, 'assignments', ch.giver), { receiver: ch.receiver, thread: tid });
+        b.update(doc(db, 'participants', ch.giver), { revealed: false, matchChanged: !!ch.opened });
+      }
+      await b.commit();
+    },
     // Late joiners drawn among themselves. Nobody else changes.
     async addPairs(pairs) {
       const b = writeBatch(db);
@@ -341,6 +355,17 @@ function createDemoStore() {
       }
       Object.assign(db.participants[giver], { revealed: false, matchChanged: !!giverOpened });
       for (const id of chain) Object.assign(db.participants[id], { inDraw: true, revealed: false, matchChanged: false });
+      save();
+    },
+    async reassign(changes) {
+      const olds = new Set(changes.map((ch) => ch.oldReceiver));
+      for (const t of Object.keys(db.threads || {})) if (olds.has(db.threads[t].receiver)) delete db.threads[t];
+      for (const ch of changes) {
+        const tid = 't' + Math.random().toString(36).slice(2, 10);
+        db.threads[tid] = { receiver: ch.receiver, messages: [] };
+        db.assignments[ch.giver] = { receiver: ch.receiver, thread: tid };
+        Object.assign(db.participants[ch.giver], { revealed: false, matchChanged: !!ch.opened });
+      }
       save();
     },
     async addPairs(pairs) {
